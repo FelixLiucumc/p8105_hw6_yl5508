@@ -9,6 +9,8 @@ It's a proj for HW6 about LINEAR MODELS.\
 
 ```{r setup, message = FALSE}
 library(tidyverse)
+library(purrr)
+library(modelr)
 set.seed(1)
 ```
 
@@ -50,7 +52,7 @@ weather_df =
 ```{r}
 temp_boot =
   weather_df |>
-  modelr::bootstrap(n = 50) |>
+  modelr::bootstrap(n = 5000) |>
   mutate(
     models = map(strap, \(df) lm(tmax ~ tmin + prcp, data = df)),
     results = map(models, broom::tidy),
@@ -101,16 +103,100 @@ temp_ci |>
 ## Problem 3
 
 ```{r loadweather}
+bw_clean =
+  read_csv("./data/birthweight.csv") |>
+  janitor::clean_names() |>
+  mutate(
+    babysex = case_when(
+      babysex == 1 ~ "male",
+      babysex == 2~ "female"),
+    frace = case_when(
+      frace == 1 ~ "White",
+      frace == 2 ~ "Black",
+      frace == 3 ~ "Asian",
+      frace == 4 ~ "Puerto Rican",
+      frace == 8 ~ "Other",
+      frace == 9 ~ "Unknown"),
+    malform = case_when(
+      malform == 0 ~ 'absent',
+      malform == 1 ~ 'present'),
+    mrace = case_when(
+      mrace == 1 ~ "White",
+      mrace == 2 ~ "Black",
+      mrace == 3 ~ "Asian",
+      mrace == 4 ~ "Puerto Rican",
+      mrace == 8 ~ "Other")
+  ) |>
+  select(-pnumlbw, -pnumsga)
 
+sum(is.na(bw_clean))
+```
 
-
+```{r}
+model_bw = lm(bwt ~ ., data = bw_clean) |>
+  step(direction = "both", trace = FALSE)
+summary(model_bw) |>
+  broom::tidy() |>
+  knitr::kable(digits = 3)
 ```
 
 
+```{r}
+res = bw_clean |>
+  modelr::add_predictions(model_bw) |>
+  modelr::add_residuals(model_bw)
+
+res |>
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = .5) +
+  stat_smooth(method = "lm") +
+  labs(x = "Predictions", y = "Residuals", title = "Residuals against Predictions") +
+  theme_minimal()
+```
 
 
+```{r}
+model_com_1 = lm(bwt ~ blength + gaweeks, data = bw_clean)
+summary(model_com_1)
 
+model_com_2 = lm(bwt ~ bhead * blength * babysex, data = bw_clean)
+summary(model_com_2)
+```
 
+```{r}
+cv_bw =
+  modelr::crossv_mc(bw_clean, 100)
+
+cv_bw_rmse =
+  cv_bw |>
+  mutate(
+    model_cv_full = map(cv_bw$train, 
+                         \(df) lm(bwt ~ ., data = (df)) |>
+                           step(direction = "both", trace = FALSE)),
+    model_sample1 = map(cv_bw$train, 
+                         \(df) lm(bwt ~ blength + gaweeks, data = (df))),
+    model_sample2 = map(cv_bw$train, 
+                         \(df) lm(bwt ~ bhead * blength * babysex, data = (df)))
+  ) |>
+  mutate(
+    errs_cv_full = purrr::map2_dbl(model_cv_full, cv_bw$test, rmse),
+    errs_sample1 = purrr::map2_dbl(model_sample1, cv_bw$test, rmse),
+    errs_sample2 = purrr::map2_dbl(model_sample2, cv_bw$test, rmse)
+  )
+
+cv_bw_rmse |>
+  select(model_gen = errs_cv_full,
+         model_sample1 = errs_sample1,
+         model_sample_2 = errs_sample2) |>
+  pivot_longer(everything(), 
+               names_to = "models",
+               values_to = "rmse") |>
+  mutate(model = factor(models, levels = c("model_gen", "model_sample1", "model_sample_2"))) |>
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin() +
+  labs(x = "Models", y = "rmse", title = "Cross-Validated Prediction Error") +
+  theme_minimal()
+```
 
 
 
