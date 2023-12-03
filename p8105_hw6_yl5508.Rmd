@@ -16,21 +16,77 @@ set.seed(1)
 
 ## Problem 1
 
-```{r datacleaning_p1, message = FALSE}
+```{r message = FALSE}
 vic_clean =
-  read_csv("./data/homicide-data.csv") |>
+  read_csv("./data/homicide-data.csv", na = c("", "NA", "Unknown")) |>
   janitor::clean_names() |>
-  mutate(city_state = str_c(city, ", ", state)) |>
+  mutate(city_state = str_c(city, ", ", state),
+         victim_age = as.numeric(victim_age)) |>
   mutate(result = case_when(
-    disposition == "Closed by arrest" ~ "solved",
-    disposition == "Closed without arrest" | disposition == "Open/No arrest" ~ "unsolved"
+    disposition == "Closed by arrest" ~ 1,
+    disposition == "Closed without arrest" | disposition == "Open/No arrest" ~ 0
   )) |>
   filter(city_state != "Dallas, TX") |>
   filter(city_state != "Phoenix, AZ") |>
   filter(city_state != "Kansas City, MO") |>
   filter(city_state != "Tulsa, AL") |>
-  filter(victim_race == "White" | victim_race == "Black")
+  filter(victim_race == "White" | victim_race == "Black") |> 
+  select(city_state, result, victim_age, victim_sex, victim_race)
 ```
+
+
+```{r}
+bal_glm = 
+  filter(vic_clean, city_state == "Baltimore, MD") |> 
+  glm(result ~ victim_age + victim_sex + victim_race, family = binomial(), data = _)
+
+bal_glm |> 
+  broom::tidy() |>
+  knitr::kable(digits = 3)
+
+bal_glm |>
+  broom::tidy() |>
+  filter(term == "victim_sexMale") |>
+  mutate(OR = exp(estimate),
+         OR_CI_upper = exp(estimate + 1.96 * std.error),
+         OR_CI_lower = exp(estimate - 1.96 * std.error)) |> 
+  select(OR, OR_CI_lower, OR_CI_upper) |>
+  knitr::kable(digits = 3)
+```
+
+
+```{r}
+model_cities = 
+  vic_clean |> 
+  nest(data = -city_state) |> 
+  mutate(models = map(data, \(df) glm(result ~ victim_age + victim_sex + victim_race, 
+                             family = binomial(), data = df)),
+    tidy_models = map(models, broom::tidy)) |> 
+  select(-models, -data) |> 
+  unnest(cols = tidy_models) |> 
+  mutate(
+    OR = exp(estimate), 
+    OR_CI_upper = exp(estimate + 1.96 * std.error),
+    OR_CI_lower = exp(estimate - 1.96 * std.error)) |> 
+  filter(term == "victim_sexMale") |> 
+  select(city_state, OR, OR_CI_lower, OR_CI_upper)
+
+model_cities |>
+  knitr::kable(digits = 3)
+```
+
+
+```{r}
+model_cities |> 
+  mutate(city_state = fct_reorder(city_state, OR)) |> 
+  ggplot(aes(x = OR, y = city_state)) + 
+  geom_point() + 
+  geom_errorbar(aes(xmin = OR_CI_lower, xmax = OR_CI_upper)) + 
+  labs(x = 'OR', y = 'city_state', title = 'Estimated ORs for cities') +
+  theme_minimal()
+```
+
+Comment: Albuquerque shows a highest OR and New York shows the lowest.  
 
 ## Problem 2
 
