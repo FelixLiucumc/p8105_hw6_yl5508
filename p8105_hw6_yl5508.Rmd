@@ -34,7 +34,7 @@ vic_clean =
 
 ## Problem 2
 
-```{r loadweatherdf}
+```{r message = FALSE, warning = FALSE}
 weather_df = 
   rnoaa::meteo_pull_monitors(
     c("USW00094728"),
@@ -49,7 +49,7 @@ weather_df =
 ```
 
 
-```{r}
+```{r message = FALSE, warning = FALSE}
 temp_boot =
   weather_df |>
   modelr::bootstrap(n = 5000) |>
@@ -64,6 +64,31 @@ temp_boot =
   unnest(r_squared) |>
   select(id, r_squared = r.squared, beta_1 = tmin, beta_2 = prcp) |>
   mutate(log_beta = log(beta_1 * beta_2))
+
+#show generated results
+temp_boot |>
+  head(10) |>
+  knitr::kable(digits = 3)
+```
+
+
+```{r}
+#report # of NA in log calculation
+tibble(
+  count_na = sum(is.na(temp_boot$log_beta)),
+  count_total = nrow(temp_boot),
+  percent_na = sum(is.na(temp_boot$log_beta)) / nrow(temp_boot)
+  ) |>
+  knitr::kable()
+```
+
+Comment: There are a total of `r sum(is.na(temp_boot$log_beta))` NA in all log calculations, accounting for `r round(sum(is.na(temp_boot$log_beta)) / nrow(temp_boot)*100, 1)`% of the overall results.
+
+```{r}
+#trim NA off
+temp_boot_tidy =
+  temp_boot |>
+  drop_na()
 ```
 
 
@@ -75,34 +100,37 @@ temp_boot |>
   theme_minimal()
 ```
 
+Comment: The distribution of r squared is approximately normal, left-skewed if being rigorous. The mean value of r squared would be about 0.92, and most of the sample points lie in a range larger than 0.9 indicating that there is a strong linear relation shown by the model.   
 
 ```{r}
-temp_boot |>
+temp_boot_tidy |>
   ggplot(aes(x = log_beta)) +
   geom_density() +
   labs(x = "log(β1*β2) Estimates", y = "Density", title = "Distribution of log(β1*β2) Estimates") +
   theme_minimal()
 ```
 
+Comment: The sample points are relatively concentrated, predominantly distributed within the range of -6 to -5. There are a considerable number of outliers on the left side, indicating a left-skewed distribution.  
 
 ```{r}
-temp_ci =
-  temp_boot |> 
+temp_boot |> 
   summarize(
     ci_lower_r2 = quantile(r_squared, 0.025), 
-    ci_upper_r2 = quantile(r_squared, 0.975),
+    ci_upper_r2 = quantile(r_squared, 0.975)) |>
+  knitr::kable(digits = 3)
+
+temp_boot_tidy |> 
+  summarize(
     ci_lower_log = quantile(log_beta, 0.025, na.rm = TRUE), 
-    ci_upper_log = quantile(log_beta, 0.975, na.rm = TRUE)
-    )
-temp_ci |>
-  knitr::kable(digits = 2)
+    ci_upper_log = quantile(log_beta, 0.975, na.rm = TRUE)) |>
+  knitr::kable(digits = 3)
 ```
 
-
+Comment: The 95% confidence interval for r^2 is (`r round(quantile(temp_boot$r_squared, 0.025), 1)`, `r round(quantile(temp_boot$r_squared, 0.975), 1)`). The 95% confidence interval for r^2 is (`r round(quantile(temp_boot_tidy$log_beta, 0.025), 1)`, `r round(quantile(temp_boot_tidy$log_beta, 0.975), 1)`).  
 
 ## Problem 3
 
-```{r loadweather}
+```{r message = FALSE, warning = FALSE}
 bw_clean =
   read_csv("./data/birthweight.csv") |>
   janitor::clean_names() |>
@@ -132,6 +160,8 @@ bw_clean =
 sum(is.na(bw_clean))
 ```
 
+Comment: No NA in this dataset. No need for trimming.  
+
 ```{r}
 model_bw = lm(bwt ~ ., data = bw_clean) |>
   step(direction = "both", trace = FALSE)
@@ -140,8 +170,9 @@ summary(model_bw) |>
   knitr::kable(digits = 3)
 ```
 
+Comment: I attempted a data-driven modeling approach by initially introducing all variables into a linear regression model. Then, employing a stepwise "both" selection method, the function evaluated the importance of variables within the model (p_value). Ultimately, the model results included variables babysex, bhead, blength, delwt, fincome, gaweeks, mheight, mrace, parity, ppwt, smoken.  
 
-```{r}
+```{r message = FALSE, warning = FALSE}
 res = bw_clean |>
   modelr::add_predictions(model_bw) |>
   modelr::add_residuals(model_bw)
@@ -162,6 +193,7 @@ summary(model_com_1)
 model_com_2 = lm(bwt ~ bhead * blength * babysex, data = bw_clean)
 summary(model_com_2)
 ```
+
 
 ```{r}
 cv_bw =
@@ -198,7 +230,7 @@ cv_bw_rmse |>
   theme_minimal()
 ```
 
-
+Comment: The model generated driven by data shows the best RMSE result. The models constructed based on empirically selected variables show poorer fit compared to the data-driven one. Specifically, the model considering only `blength and `gaweeks` exhibited the worst performance, having the highest RMSE. 
 
 
 
